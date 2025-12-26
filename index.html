@@ -42,46 +42,22 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #999; }
         
-        /* Compact invoice styling */
-        .compact-invoice {
-            font-size: 10pt;
-            line-height: 1.2;
-        }
-        .compact-invoice table {
-            font-size: 9pt;
-        }
-        .compact-invoice .compact-cell {
-            padding: 4px 6px;
-        }
-        .compact-invoice .header-section {
-            max-height: 100px;
-            min-height: 100px;
-        }
-        .compact-invoice .items-section {
-            max-height: 300px;
-            min-height: 300px;
-        }
-        .compact-invoice .notes-section {
-            max-height: 150px;
-            min-height: 150px;
-        }
-        .compact-invoice .footer-section {
-            max-height: 100px;
-            min-height: 100px;
-        }
-        
         /* Image upload styling */
         .image-upload-container {
             position: relative;
-            width: 150px;
-            height: 150px;
-            border: 2px dashed #ccc;
+            border: 2px dashed #d1d5db;
             border-radius: 8px;
             overflow: hidden;
             background: #f9fafb;
+            transition: all 0.3s ease;
         }
         .image-upload-container:hover {
             border-color: #3b82f6;
+            background: #f0f9ff;
+        }
+        .image-upload-container.dragover {
+            border-color: #3b82f6;
+            background: #dbeafe;
         }
         .image-preview {
             width: 100%;
@@ -99,6 +75,7 @@
             border-radius: 4px;
             font-size: 12px;
             cursor: pointer;
+            z-index: 10;
         }
         .signature-preview {
             max-width: 200px;
@@ -127,6 +104,18 @@
             width: 310%;
             height: 310%;
             pointer-events: none;
+        }
+        
+        /* Compact invoice styling */
+        .compact-invoice {
+            font-size: 10pt;
+            line-height: 1.2;
+        }
+        .compact-invoice table {
+            font-size: 9pt;
+        }
+        .compact-invoice .compact-cell {
+            padding: 4px 6px;
         }
     </style>
 </head>
@@ -246,8 +235,8 @@
         const imageToBase64 = (file) => {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = reject;
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (error) => reject(error);
                 reader.readAsDataURL(file);
             });
         };
@@ -321,14 +310,30 @@
             );
         });
 
-        // Image Upload Component
+        // Image Upload Component - FIXED VERSION
         const ImageUpload = ({ label, currentImage, onImageChange, aspectRatio = "square", maxSizeMB = 2 }) => {
             const fileInputRef = useRef(null);
+            const [isDragging, setIsDragging] = useState(false);
+            const [previewUrl, setPreviewUrl] = useState(currentImage);
+
+            // Update preview when currentImage changes
+            useEffect(() => {
+                setPreviewUrl(currentImage);
+            }, [currentImage]);
 
             const handleFileSelect = async (e) => {
-                const file = e.target.files[0];
+                const file = e.target.files?.[0];
                 if (!file) return;
 
+                await processFile(file);
+                
+                // Reset input value so same file can be selected again
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                }
+            };
+
+            const processFile = async (file) => {
                 // Check file size
                 if (file.size > maxSizeMB * 1024 * 1024) {
                     alert(`File size must be less than ${maxSizeMB}MB`);
@@ -336,47 +341,88 @@
                 }
 
                 // Check file type
-                if (!file.type.match('image.*')) {
-                    alert('Please select an image file');
+                if (!file.type.match(/^image\/(jpeg|jpg|png|gif|webp)$/)) {
+                    alert('Please select a valid image file (JPEG, PNG, GIF, WebP)');
                     return;
                 }
 
                 try {
                     const base64 = await imageToBase64(file);
                     onImageChange(base64);
+                    setPreviewUrl(base64);
                 } catch (error) {
-                    alert('Error processing image');
+                    console.error('Error processing image:', error);
+                    alert('Error processing image. Please try again.');
+                }
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                setIsDragging(true);
+            };
+
+            const handleDragLeave = (e) => {
+                e.preventDefault();
+                setIsDragging(false);
+            };
+
+            const handleDrop = async (e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                
+                const file = e.dataTransfer.files?.[0];
+                if (file) {
+                    await processFile(file);
                 }
             };
 
             const handleRemove = () => {
                 onImageChange('');
+                setPreviewUrl('');
                 if (fileInputRef.current) {
                     fileInputRef.current.value = '';
                 }
             };
 
+            const handleContainerClick = () => {
+                if (!previewUrl) {
+                    fileInputRef.current?.click();
+                }
+            };
+
             return (
-                <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-600">{label}</label>
-                    <div className={`image-upload-container ${aspectRatio === 'wide' ? 'w-48 h-32' : 'w-40 h-40'}`}>
-                        {currentImage ? (
-                            <>
-                                <img src={currentImage} alt={label} className="image-preview" />
-                                <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-10 transition-all">
+                <div className="space-y-3">
+                    <label className="block text-sm font-medium text-gray-700">{label}</label>
+                    <div 
+                        className={`image-upload-container ${aspectRatio === 'wide' ? 'w-full h-40' : 'w-full h-48'} ${isDragging ? 'dragover' : ''}`}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        onClick={handleContainerClick}
+                    >
+                        {previewUrl ? (
+                            <div className="relative w-full h-full">
+                                <img src={previewUrl} alt={label} className="image-preview" />
+                                <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-10 transition-all duration-200 flex items-end justify-center p-4">
                                     <button 
-                                        onClick={() => fileInputRef.current?.click()} 
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            fileInputRef.current?.click();
+                                        }} 
                                         className="image-upload-btn"
                                     >
-                                        Change
+                                        Change Image
                                     </button>
                                 </div>
-                            </>
+                            </div>
                         ) : (
-                            <div className="flex flex-col items-center justify-center h-full p-4 text-gray-400">
-                                <Image className="w-12 h-12 mb-2" />
-                                <span className="text-sm text-center">Click to upload</span>
-                                <span className="text-xs mt-1">PNG, JPG up to {maxSizeMB}MB</span>
+                            <div className="flex flex-col items-center justify-center h-full p-4 text-gray-400 cursor-pointer">
+                                <Upload className="w-12 h-12 mb-3 text-gray-300" />
+                                <div className="text-center">
+                                    <p className="text-sm font-medium mb-1">Click or drag to upload</p>
+                                    <p className="text-xs">PNG, JPG, GIF up to {maxSizeMB}MB</p>
+                                </div>
                             </div>
                         )}
                         <input
@@ -387,14 +433,20 @@
                             className="hidden"
                         />
                     </div>
-                    {currentImage && (
-                        <button
-                            type="button"
-                            onClick={handleRemove}
-                            className="text-sm text-red-600 hover:text-red-800"
-                        >
-                            Remove Image
-                        </button>
+                    {previewUrl && (
+                        <div className="flex justify-between items-center">
+                            <span className="text-xs text-gray-500">
+                                ✓ Image uploaded successfully
+                            </span>
+                            <button
+                                type="button"
+                                onClick={handleRemove}
+                                className="text-sm text-red-600 hover:text-red-800 transition-colors flex items-center gap-1"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                                Remove
+                            </button>
+                        </div>
                     )}
                 </div>
             );
@@ -588,6 +640,7 @@
             const [user, setUser] = useState(null);
             const [logoImage, setLogoImage] = useState('');
             const [signatureImage, setSignatureImage] = useState('');
+            const [uploadError, setUploadError] = useState('');
             const autoSaveTimerRef = useRef(null);
 
             // --- Default Data ---
@@ -642,22 +695,55 @@
 
             const [invoiceData, setInvoiceData] = useState(defaultData);
 
-            // Load images from localStorage
+            // Load images from localStorage on component mount
             useEffect(() => {
-                const savedLogo = localStorage.getItem('possibleStudio_logo');
-                const savedSignature = localStorage.getItem('possibleStudio_signature');
-                if (savedLogo) setLogoImage(savedLogo);
-                if (savedSignature) setSignatureImage(savedSignature);
+                try {
+                    const savedLogo = localStorage.getItem('possibleStudio_logo');
+                    const savedSignature = localStorage.getItem('possibleStudio_signature');
+                    
+                    if (savedLogo && savedLogo.startsWith('data:image')) {
+                        setLogoImage(savedLogo);
+                    }
+                    
+                    if (savedSignature && savedSignature.startsWith('data:image')) {
+                        setSignatureImage(savedSignature);
+                    }
+                } catch (error) {
+                    console.error('Error loading images from localStorage:', error);
+                }
             }, []);
 
-            // Save images to localStorage
+            // Save logo image to localStorage
             useEffect(() => {
-                if (logoImage) localStorage.setItem('possibleStudio_logo', logoImage);
+                if (logoImage) {
+                    try {
+                        localStorage.setItem('possibleStudio_logo', logoImage);
+                    } catch (error) {
+                        console.error('Error saving logo to localStorage:', error);
+                        setUploadError('Error saving logo. Local storage may be full.');
+                    }
+                }
             }, [logoImage]);
 
+            // Save signature image to localStorage
             useEffect(() => {
-                if (signatureImage) localStorage.setItem('possibleStudio_signature', signatureImage);
+                if (signatureImage) {
+                    try {
+                        localStorage.setItem('possibleStudio_signature', signatureImage);
+                    } catch (error) {
+                        console.error('Error saving signature to localStorage:', error);
+                        setUploadError('Error saving signature. Local storage may be full.');
+                    }
+                }
             }, [signatureImage]);
+
+            // Clear upload error after 5 seconds
+            useEffect(() => {
+                if (uploadError) {
+                    const timer = setTimeout(() => setUploadError(''), 5000);
+                    return () => clearTimeout(timer);
+                }
+            }, [uploadError]);
 
             // --- AUTH ---
             useEffect(() => {
@@ -1115,6 +1201,10 @@
             const resetToDefault = useCallback(() => {
                 if (window.confirm("Reset all fields to default? This will clear all current data.")) {
                     setInvoiceData(defaultData);
+                    setLogoImage('');
+                    setSignatureImage('');
+                    localStorage.removeItem('possibleStudio_logo');
+                    localStorage.removeItem('possibleStudio_signature');
                 }
             }, [defaultData]);
 
@@ -1465,27 +1555,35 @@
                                 {/* Branding Images */}
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                                     <h2 className="text-lg font-semibold mb-4 flex items-center text-gray-700">
-                                        <Image className="w-5 h-5 mr-2" /> Branding
+                                        <Image className="w-5 h-5 mr-2" /> Branding Images
                                     </h2>
+                                    
+                                    {uploadError && (
+                                        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm">
+                                            {uploadError}
+                                        </div>
+                                    )}
+                                    
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <ImageUpload 
                                             label="Company Logo"
                                             currentImage={logoImage}
                                             onImageChange={setLogoImage}
-                                            maxSizeMB={1}
+                                            maxSizeMB={2}
                                         />
                                         <ImageUpload 
                                             label="Signature Image"
                                             currentImage={signatureImage}
                                             onImageChange={setSignatureImage}
                                             aspectRatio="wide"
-                                            maxSizeMB={1}
+                                            maxSizeMB={2}
                                         />
                                     </div>
-                                    <div className="mt-4 text-xs text-gray-500">
-                                        <p>• Logo will appear at the top left of the invoice</p>
-                                        <p>• Signature will replace the typed signature</p>
-                                        <p>• Images are saved locally in your browser</p>
+                                    <div className="mt-4 text-xs text-gray-500 space-y-1">
+                                        <p>• Logo appears at top-left (recommended: 300×100px)</p>
+                                        <p>• Signature appears at bottom-right (recommended: 300×80px)</p>
+                                        <p>• Images save automatically to your browser</p>
+                                        <p>• Supported formats: PNG, JPG, GIF, WebP</p>
                                     </div>
                                 </div>
 
