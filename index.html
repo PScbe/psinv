@@ -1,0 +1,1873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Possible Studio Invoice Generator</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel (to compile JSX in browser) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        @media print {
+            @page { 
+                margin: 0; 
+                size: A4 portrait;
+            }
+            body { 
+                background: white; 
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            .print\:hidden { display: none !important; }
+            .print\:block { display: block !important; }
+            .print\:w-full { width: 100% !important; }
+            .print\:max-w-none { max-width: none !important; }
+            .print\:p-0 { padding: 0 !important; }
+            .print\:m-0 { margin: 0 !important; }
+            .print\:shadow-none { box-shadow: none !important; }
+            ::-webkit-scrollbar { display: none; }
+            .page-break { page-break-inside: avoid; break-inside: avoid; }
+        }
+        .cursor-wait { cursor: wait; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #999; }
+        
+        /* Compact invoice styling */
+        .compact-invoice {
+            font-size: 10pt;
+            line-height: 1.2;
+        }
+        .compact-invoice table {
+            font-size: 9pt;
+        }
+        .compact-invoice .compact-cell {
+            padding: 4px 6px;
+        }
+        .compact-invoice .header-section {
+            max-height: 100px;
+            min-height: 100px;
+        }
+        .compact-invoice .items-section {
+            max-height: 300px;
+            min-height: 300px;
+        }
+        .compact-invoice .notes-section {
+            max-height: 150px;
+            min-height: 150px;
+        }
+        .compact-invoice .footer-section {
+            max-height: 100px;
+            min-height: 100px;
+        }
+        
+        /* Image upload styling */
+        .image-upload-container {
+            position: relative;
+            width: 150px;
+            height: 150px;
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #f9fafb;
+        }
+        .image-upload-container:hover {
+            border-color: #3b82f6;
+        }
+        .image-preview {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .image-upload-btn {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(59, 130, 246, 0.9);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .signature-preview {
+            max-width: 200px;
+            max-height: 80px;
+            object-fit: contain;
+        }
+        
+        /* Live preview overlay */
+        .preview-overlay {
+            position: fixed;
+            top: 50%;
+            right: 20px;
+            transform: translateY(-50%);
+            z-index: 40;
+            width: 300px;
+            height: 424px; /* A4 aspect ratio */
+            background: white;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .preview-content {
+            transform: scale(0.32);
+            transform-origin: top left;
+            width: 310%;
+            height: 310%;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, push, onValue, update, remove, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+        const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+        // --- ICONS ---
+        const Icon = ({ path, className, onClick }) => (
+            <svg onClick={onClick} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                {path}
+            </svg>
+        );
+        const Printer = ({ className }) => <Icon className={className} path={<><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></>} />;
+        const Plus = ({ className }) => <Icon className={className} path={<><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></>} />;
+        const Trash2 = ({ className, onClick }) => <Icon onClick={onClick} className={className} path={<><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></>} />;
+        const FileText = ({ className }) => <Icon className={className} path={<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></>} />;
+        const Settings = ({ className }) => <Icon className={className} path={<><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></>} />;
+        const RefreshCw = ({ className }) => <Icon className={className} path={<><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></>} />;
+        const Loader = ({ className }) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>;
+        const Save = ({ className }) => <Icon className={className} path={<><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></>} />;
+        const History = ({ className }) => <Icon className={className} path={<><path d="M3 3v5h5"></path><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"></path><path d="M12 7v5l4 2"></path></>} />;
+        const X = ({ className }) => <Icon className={className} path={<><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></>} />;
+        const ChevronRight = ({ className }) => <Icon className={className} path={<><polyline points="9 18 15 12 9 6"></polyline></>} />;
+        const UserPlus = ({ className }) => <Icon className={className} path={<><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></>} />;
+        const Users = ({ className }) => <Icon className={className} path={<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></>} />;
+        const Landmark = ({ className }) => <Icon className={className} path={<><line x1="3" y1="21" x2="21" y2="21"></line><line x1="5" y1="21" x2="5" y2="10"></line><line x1="19" y1="21" x2="19" y2="10"></line><polyline points="5 6 12 3 19 6"></polyline><line x1="4" y1="10" x2="20" y2="10"></line></>} />;
+        const ChevronDown = ({ className }) => <Icon className={className} path={<><polyline points="6 9 12 15 18 9"></polyline></>} />;
+        const Eye = ({ className }) => <Icon className={className} path={<><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></>} />;
+        const Upload = ({ className }) => <Icon className={className} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></>} />;
+        const Image = ({ className }) => <Icon className={className} path={<><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></>} />;
+
+
+        // --- FIREBASE CONFIG ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAIHIVv6dJ0LlNqP_0qkYNok7xsbxHgdRY",
+            authDomain: "studio-space-rental-database.firebaseapp.com",
+            databaseURL: "https://studio-space-rental-database-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "studio-space-rental-database",
+            storageBucket: "studio-space-rental-database.appspot.com",
+            messagingSenderId: "176375720882",
+            appId: "1:176375720882:web:ac012e2d33e8fec5ca52ab",
+            measurementId: "G-NWZ18H2CVT"
+        };
+
+        // Initialize Firebase & Auth
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const auth = getAuth(app);
+
+        // --- HELPERS ---
+        const numberToWords = (num) => {
+            if (num === 0) return "Zero";
+            const a = ['', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '];
+            const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+            
+            const integerPart = Math.floor(Math.abs(num));
+            const decimalPart = Math.round((Math.abs(num) - integerPart) * 100);
+            
+            let words = '';
+            const n = ('000000000' + integerPart).slice(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
+            
+            if (n) {
+                words += (n[1] != 0) ? (a[Number(n[1])] || b[n[1][0]] + ' ' + a[n[1][1]]) + 'Crore ' : '';
+                words += (n[2] != 0) ? (a[Number(n[2])] || b[n[2][0]] + ' ' + a[n[2][1]]) + 'Lakh ' : '';
+                words += (n[3] != 0) ? (a[Number(n[3])] || b[n[3][0]] + ' ' + a[n[3][1]]) + 'Thousand ' : '';
+                words += (n[4] != 0) ? (a[Number(n[4])] || b[n[4][0]] + ' ' + a[n[4][1]]) + 'Hundred ' : '';
+                words += (n[5] != 0) ? ((words != '') ? 'and ' : '') + (a[Number(n[5])] || b[n[5][0]] + ' ' + a[n[5][1]]) : '';
+                words = words.trim();
+            }
+            
+            if (decimalPart > 0) {
+                if (words) words += ' and ';
+                if (decimalPart < 20) {
+                    words += a[decimalPart] + 'Paise';
+                } else {
+                    const tens = Math.floor(decimalPart / 10);
+                    const ones = decimalPart % 10;
+                    words += b[tens] + (ones ? ' ' + a[ones] : '') + ' Paise';
+                }
+            }
+            
+            return words ? words + ' Only' : '';
+        };
+
+        const formatCurrency = (val) => {
+            if (val === null || val === undefined || isNaN(val)) return '0.00';
+            return new Intl.NumberFormat('en-IN', { 
+                minimumFractionDigits: 2, 
+                maximumFractionDigits: 2 
+            }).format(val);
+        };
+        
+        const formatDateShort = (ts) => {
+            if (!ts) return '';
+            try {
+                const date = new Date(ts);
+                if (isNaN(date.getTime())) return '';
+                return date.toLocaleDateString('en-IN', { 
+                    month: 'short', 
+                    day: 'numeric', 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+            } catch (e) {
+                return '';
+            }
+        };
+
+        // Image handling utility
+        const imageToBase64 = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        };
+
+        // --- COMPONENTS ---
+        const CustomDropdown = React.memo(({ options, onSelect, onDelete, placeholder, displayKey }) => {
+            const [isOpen, setIsOpen] = useState(false);
+            const wrapperRef = useRef(null);
+
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+                        setIsOpen(false);
+                    }
+                };
+                document.addEventListener("mousedown", handleClickOutside);
+                return () => document.removeEventListener("mousedown", handleClickOutside);
+            }, []);
+
+            const handleSelect = useCallback((option) => {
+                onSelect(option);
+                setIsOpen(false);
+            }, [onSelect]);
+
+            const handleDelete = useCallback((e, dbId) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDelete(dbId);
+            }, [onDelete]);
+
+            return (
+                <div className="relative inline-block w-full text-left" ref={wrapperRef}>
+                    <button 
+                        type="button" 
+                        onClick={() => setIsOpen(!isOpen)} 
+                        className="flex items-center justify-between w-full rounded-md border border-gray-300 shadow-sm px-3 py-2 bg-gray-50 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        <span className="truncate">{placeholder}</span>
+                        <ChevronDown className="ml-1 h-4 w-4 text-gray-500" />
+                    </button>
+
+                    {isOpen && (
+                        <div className="absolute right-0 mt-1 w-full min-w-[200px] rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-50 max-h-60 overflow-y-auto">
+                            <div className="py-1">
+                                {options.length === 0 ? (
+                                    <div className="block px-4 py-2 text-sm text-gray-500">No saved items</div>
+                                ) : (
+                                    options.map((option) => (
+                                        <div key={option.dbId} className="flex justify-between items-center px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 group">
+                                            <span 
+                                                className="cursor-pointer flex-grow truncate" 
+                                                onClick={() => handleSelect(option)}
+                                            >
+                                                {displayKey(option)}
+                                            </span>
+                                            <button 
+                                                type="button"
+                                                onClick={(e) => handleDelete(e, option.dbId)} 
+                                                className="ml-2 p-1.5 text-gray-400 hover:text-red-500 rounded hover:bg-red-50 transition-colors" 
+                                                title="Delete"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        });
+
+        // Image Upload Component
+        const ImageUpload = ({ label, currentImage, onImageChange, aspectRatio = "square", maxSizeMB = 2 }) => {
+            const fileInputRef = useRef(null);
+
+            const handleFileSelect = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                // Check file size
+                if (file.size > maxSizeMB * 1024 * 1024) {
+                    alert(`File size must be less than ${maxSizeMB}MB`);
+                    return;
+                }
+
+                // Check file type
+                if (!file.type.match('image.*')) {
+                    alert('Please select an image file');
+                    return;
+                }
+
+                try {
+                    const base64 = await imageToBase64(file);
+                    onImageChange(base64);
+                } catch (error) {
+                    alert('Error processing image');
+                }
+            };
+
+            const handleRemove = () => {
+                onImageChange('');
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                }
+            };
+
+            return (
+                <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-600">{label}</label>
+                    <div className={`image-upload-container ${aspectRatio === 'wide' ? 'w-48 h-32' : 'w-40 h-40'}`}>
+                        {currentImage ? (
+                            <>
+                                <img src={currentImage} alt={label} className="image-preview" />
+                                <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-10 transition-all">
+                                    <button 
+                                        onClick={() => fileInputRef.current?.click()} 
+                                        className="image-upload-btn"
+                                    >
+                                        Change
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-full p-4 text-gray-400">
+                                <Image className="w-12 h-12 mb-2" />
+                                <span className="text-sm text-center">Click to upload</span>
+                                <span className="text-xs mt-1">PNG, JPG up to {maxSizeMB}MB</span>
+                            </div>
+                        )}
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleFileSelect}
+                            accept="image/*"
+                            className="hidden"
+                        />
+                    </div>
+                    {currentImage && (
+                        <button
+                            type="button"
+                            onClick={handleRemove}
+                            className="text-sm text-red-600 hover:text-red-800"
+                        >
+                            Remove Image
+                        </button>
+                    )}
+                </div>
+            );
+        };
+
+        // --- COMPACT INVOICE PREVIEW COMPONENT ---
+        const CompactInvoicePreview = React.memo(({ 
+            invoiceData, 
+            subTotal, 
+            total, 
+            amountInWords,
+            logoImage,
+            signatureImage 
+        }) => {
+            return (
+                <div className="compact-invoice bg-white p-6 border border-gray-300 rounded-lg shadow-sm print:shadow-none print:border-0 print:p-0 print:rounded-none">
+                    {/* Header */}
+                    <div className="header-section mb-4 flex justify-between items-start border-b pb-3">
+                        <div className="w-2/5">
+                            {logoImage ? (
+                                <img src={logoImage} alt="Logo" className="h-12 mb-2" />
+                            ) : (
+                                <div className="mb-2">
+                                    <h1 className="text-xl font-bold leading-tight">
+                                        <span className="text-black">possible</span>
+                                        <br />
+                                        <span className="text-gray-500 font-light">studio</span>
+                                    </h1>
+                                </div>
+                            )}
+                            <div className="text-xs text-gray-600 space-y-0.5">
+                                <p className="font-semibold">{invoiceData.sender.name}</p>
+                                <p>{invoiceData.sender.addressLine1}</p>
+                                <p>{invoiceData.sender.addressLine2}</p>
+                                <p className="mt-1">{invoiceData.sender.phone}</p>
+                                <p>{invoiceData.sender.email}</p>
+                            </div>
+                        </div>
+                        <div className="w-3/5 text-right">
+                            <h2 className="text-2xl font-light text-gray-400 mb-2 uppercase tracking-wider">{invoiceData.type}</h2>
+                            <div className="inline-block bg-gray-50 p-3 rounded text-left">
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                    <div className="font-semibold text-gray-600">{invoiceData.type} #</div>
+                                    <div className="font-bold">{invoiceData.number}</div>
+                                    <div className="font-semibold text-gray-600">Date</div>
+                                    <div>{invoiceData.date.split('-').reverse().join('/')}</div>
+                                    {invoiceData.expiryDate && (
+                                        <>
+                                            <div className="font-semibold text-gray-600">Expiry</div>
+                                            <div>{invoiceData.expiryDate.split('-').reverse().join('/')}</div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Bill To & Subject */}
+                    <div className="mb-4 flex justify-between">
+                        <div className="w-1/2">
+                            <h3 className="text-xs font-bold text-gray-500 uppercase mb-1">Bill To</h3>
+                            <div className="text-sm">
+                                <p className="font-bold mb-1">{invoiceData.client.company || '[Client]'}</p>
+                                <p className="text-xs">{invoiceData.client.addressLine1}</p>
+                                <p className="text-xs">{invoiceData.client.addressLine2}</p>
+                                <p className="text-xs">{invoiceData.client.cityStateZip}</p>
+                            </div>
+                        </div>
+                        <div className="w-1/2 text-right">
+                            {invoiceData.subject && (
+                                <>
+                                    <h3 className="text-xs font-bold text-gray-500 uppercase mb-1">Subject</h3>
+                                    <p className="text-sm">{invoiceData.subject}</p>
+                                </>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Items Table */}
+                    <div className="items-section mb-4">
+                        <table className="w-full border-collapse">
+                            <thead>
+                                <tr className="border-y border-gray-300">
+                                    <th className="compact-cell text-left text-xs font-bold text-gray-700">#</th>
+                                    <th className="compact-cell text-left text-xs font-bold text-gray-700">Item & Description</th>
+                                    <th className="compact-cell text-right text-xs font-bold text-gray-700">Qty</th>
+                                    <th className="compact-cell text-right text-xs font-bold text-gray-700">Rate</th>
+                                    <th className="compact-cell text-right text-xs font-bold text-gray-700">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {invoiceData.items.slice(0, 6).map((item, index) => (
+                                    <tr key={item.id} className="border-b border-gray-100">
+                                        <td className="compact-cell text-xs text-gray-600">{index + 1}</td>
+                                        <td className="compact-cell">
+                                            <p className="text-xs font-medium mb-0.5">{item.item || 'Item'}</p>
+                                            <p className="text-xs text-gray-500 truncate">{item.description || 'Description'}</p>
+                                        </td>
+                                        <td className="compact-cell text-right text-xs">{parseFloat(item.qty || 0).toFixed(2)}</td>
+                                        <td className="compact-cell text-right text-xs">₹{formatCurrency(item.rate || 0)}</td>
+                                        <td className="compact-cell text-right text-xs font-medium">₹{formatCurrency((item.qty || 0) * (item.rate || 0))}</td>
+                                    </tr>
+                                ))}
+                                {invoiceData.items.length > 6 && (
+                                    <tr>
+                                        <td colSpan="5" className="compact-cell text-center text-xs text-gray-500 italic">
+                                            ... and {invoiceData.items.length - 6} more items
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Totals & Footer */}
+                    <div className="footer-section">
+                        <div className="flex justify-between items-start">
+                            <div className="w-3/5 space-y-3">
+                                <div className="text-xs">
+                                    <p className="font-semibold text-gray-500 mb-0.5">Amount In Words:</p>
+                                    <p className="text-gray-700 italic">{amountInWords.split(' ').slice(0, 12).join(' ')}...</p>
+                                </div>
+                                <div className="bg-gray-50 p-3 rounded text-xs">
+                                    <p className="font-semibold text-gray-500 mb-1">Bank Details</p>
+                                    <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+                                        <span className="text-gray-600">Account:</span>
+                                        <span>{invoiceData.bankDetails.accountName || '[Account Name]'}</span>
+                                        <span className="text-gray-600">Bank:</span>
+                                        <span>{invoiceData.bankDetails.bankName || '[Bank]'}</span>
+                                        <span className="text-gray-600">Account #:</span>
+                                        <span>{invoiceData.bankDetails.accountNumber || '[Number]'}</span>
+                                        <span className="text-gray-600">IFSC:</span>
+                                        <span>{invoiceData.bankDetails.ifsc || '[IFSC]'}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="w-2/5 pl-4">
+                                <div className="space-y-1 text-xs mb-4">
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-600">Sub Total</span>
+                                        <span>₹{formatCurrency(subTotal)}</span>
+                                    </div>
+                                    {invoiceData.adjustmentAmount !== 0 && (
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-600">{invoiceData.adjustmentLabel || 'Adjustment'}</span>
+                                            <span className={invoiceData.adjustmentAmount < 0 ? 'text-red-600' : 'text-green-600'}>
+                                                {invoiceData.adjustmentAmount < 0 ? '-' : '+'}₹{formatCurrency(Math.abs(invoiceData.adjustmentAmount))}
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between font-bold text-sm pt-1 border-t border-gray-300">
+                                        <span>Total</span>
+                                        <span>₹{formatCurrency(total)}</span>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    {signatureImage ? (
+                                        <img src={signatureImage} alt="Signature" className="signature-preview inline-block" />
+                                    ) : (
+                                        <p className="font-script text-lg text-blue-900" style={{fontFamily: 'cursive'}}>
+                                            {invoiceData.signatory}
+                                        </p>
+                                    )}
+                                    <p className="text-xs text-gray-500 mt-1 border-t border-gray-300 pt-1">Authorized Signature</p>
+                                </div>
+                            </div>
+                        </div>
+                        {invoiceData.notes && (
+                            <div className="mt-3 pt-3 border-t border-gray-200">
+                                <p className="text-xs text-gray-600 italic">{invoiceData.notes}</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        });
+
+        // --- APP COMPONENT ---
+        function InvoiceApp() {
+            const [mode, setMode] = useState('edit'); 
+            const [currency] = useState('₹');
+            const [isPrinting, setIsPrinting] = useState(false);
+            const [isSaving, setIsSaving] = useState(false);
+            const [isSavingBank, setIsSavingBank] = useState(false);
+            const [showHistory, setShowHistory] = useState(false);
+            const [showPreview, setShowPreview] = useState(true);
+            const [savedInvoices, setSavedInvoices] = useState([]);
+            const [savedClients, setSavedClients] = useState([]); 
+            const [savedBanks, setSavedBanks] = useState([]); 
+            const [dbStatus, setDbStatus] = useState('connecting');
+            const [user, setUser] = useState(null);
+            const [logoImage, setLogoImage] = useState('');
+            const [signatureImage, setSignatureImage] = useState('');
+            const autoSaveTimerRef = useRef(null);
+
+            // --- Default Data ---
+            const getDates = useCallback(() => {
+                const today = new Date();
+                const nextWeek = new Date(today);
+                nextWeek.setDate(today.getDate() + 7);
+                return {
+                    date: today.toISOString().split('T')[0],
+                    expiryDate: nextWeek.toISOString().split('T')[0]
+                };
+            }, []);
+
+            const defaultData = useMemo(() => ({
+                type: 'QUOTE', 
+                number: '', 
+                ...getDates(),
+                subject: '',
+                sender: {
+                    name: 'Possible Studio',
+                    addressLine1: 'Coimbatore Tamil Nadu 641018',
+                    addressLine2: 'India',
+                    phone: '86106 73173',
+                    email: 'hello@possiblestudio.in',
+                    website: 'www.possiblestudio.in',
+                },
+                client: {
+                    company: '',
+                    addressLine1: '',
+                    addressLine2: '',
+                    cityStateZip: '',
+                    country: '',
+                    customFields: [] 
+                },
+                items: [
+                    { id: 1, item: 'Studio Rental', description: 'Professional studio space with equipment', qty: 1, rate: 10000 },
+                    { id: 2, item: 'Equipment Rental', description: 'Cameras, lighting, audio gear', qty: 2, rate: 5000 }
+                ],
+                adjustmentLabel: 'Adjustment 0%',
+                adjustmentPercentage: 0,
+                adjustmentAmount: 0,
+                bankDetails: {
+                    saveName: '',
+                    accountName: 'Possible Studio',
+                    bankName: 'HDFC Bank',
+                    accountNumber: '50100234567890',
+                    ifsc: 'HDFC0001234',
+                },
+                signatory: 'Prem f1.',
+                notes: 'Thank you for your business! Please make payment within 7 days.',
+            }), [getDates]);
+
+            const [invoiceData, setInvoiceData] = useState(defaultData);
+
+            // Load images from localStorage
+            useEffect(() => {
+                const savedLogo = localStorage.getItem('possibleStudio_logo');
+                const savedSignature = localStorage.getItem('possibleStudio_signature');
+                if (savedLogo) setLogoImage(savedLogo);
+                if (savedSignature) setSignatureImage(savedSignature);
+            }, []);
+
+            // Save images to localStorage
+            useEffect(() => {
+                if (logoImage) localStorage.setItem('possibleStudio_logo', logoImage);
+            }, [logoImage]);
+
+            useEffect(() => {
+                if (signatureImage) localStorage.setItem('possibleStudio_signature', signatureImage);
+            }, [signatureImage]);
+
+            // --- AUTH ---
+            useEffect(() => {
+                const unsubscribe = onAuthStateChanged(auth, (u) => {
+                    if (u) {
+                        setUser(u);
+                        setDbStatus('connected');
+                    } else {
+                        signInAnonymously(auth).catch(e => {
+                            console.warn("Auth warning:", e);
+                            setDbStatus('error');
+                        });
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            // --- AUTO NUMBERS ---
+            const calculateNextNumber = useCallback((docType, historyList) => {
+                const typePrefix = docType === 'QUOTE' ? 'QT-' : docType === 'INVOICE' ? 'INV-' : 'EST-';
+                const relevantDocs = historyList.filter(inv => inv.number && inv.number.startsWith(typePrefix));
+                let nextNum = 1;
+                if (relevantDocs.length > 0) {
+                    const maxNum = relevantDocs.reduce((max, inv) => {
+                        const numPart = parseInt(inv.number.replace(typePrefix, '')) || 0;
+                        return numPart > max ? numPart : max;
+                    }, 0);
+                    nextNum = maxNum + 1;
+                }
+                return `${typePrefix}${String(nextNum).padStart(6, '0')}`;
+            }, []);
+
+            // --- LOCAL STORAGE ---
+            useEffect(() => {
+                const saved = localStorage.getItem('possibleStudio_lastInvoice');
+                if (saved) {
+                    try {
+                        const parsed = JSON.parse(saved);
+                        setInvoiceData(prev => ({ 
+                            ...defaultData, 
+                            ...parsed, 
+                            date: parsed.date || getDates().date, 
+                            expiryDate: parsed.expiryDate || getDates().expiryDate,
+                            client: { ...defaultData.client, ...parsed.client }, 
+                            bankDetails: { ...defaultData.bankDetails, ...parsed.bankDetails },
+                            items: Array.isArray(parsed.items) && parsed.items.length > 0 ? parsed.items : defaultData.items
+                        }));
+                    } catch (e) { 
+                        console.error("Local Storage Error:", e);
+                        setInvoiceData(defaultData);
+                    }
+                }
+            }, [defaultData, getDates]);
+
+            // Auto-save to localStorage
+            useEffect(() => {
+                if (autoSaveTimerRef.current) {
+                    clearTimeout(autoSaveTimerRef.current);
+                }
+                
+                autoSaveTimerRef.current = setTimeout(() => {
+                    try {
+                        localStorage.setItem('possibleStudio_lastInvoice', JSON.stringify(invoiceData));
+                    } catch (e) {
+                        console.error("Auto-save error:", e);
+                    }
+                }, 1000);
+                
+                return () => {
+                    if (autoSaveTimerRef.current) {
+                        clearTimeout(autoSaveTimerRef.current);
+                    }
+                };
+            }, [invoiceData]);
+
+            // --- FIREBASE SYNC ---
+            useEffect(() => {
+                const invoicesRef = ref(db, 'invoices');
+                const invoicesUnsubscribe = onValue(invoicesRef, (snapshot) => {
+                    setDbStatus('connected');
+                    const data = snapshot.val();
+                    if (data) {
+                        const list = Object.entries(data)
+                            .map(([key, value]) => ({ 
+                                dbId: key, 
+                                ...value,
+                                savedAt: value.savedAt || 0 
+                            }))
+                            .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+                        setSavedInvoices(list);
+                        
+                        if (list.length > 0 && (!invoiceData.number || invoiceData.number === 'QT-000046')) {
+                            setInvoiceData(prev => ({
+                                ...prev,
+                                number: calculateNextNumber(prev.type, list)
+                            }));
+                        }
+                    } else {
+                        setSavedInvoices([]);
+                    }
+                }, (err) => { 
+                    console.error("Invoices fetch error:", err); 
+                    setDbStatus('error'); 
+                });
+
+                const clientsRef = ref(db, 'clients');
+                const clientsUnsubscribe = onValue(clientsRef, (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        const list = Object.entries(data)
+                            .map(([key, value]) => ({ 
+                                dbId: key, 
+                                ...value 
+                            }))
+                            .sort((a, b) => (a.company || '').localeCompare(b.company || ''));
+                        setSavedClients(list);
+                    } else {
+                        setSavedClients([]);
+                    }
+                });
+
+                const banksRef = ref(db, 'bank_accounts');
+                const banksUnsubscribe = onValue(banksRef, (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        const list = Object.entries(data)
+                            .map(([key, value]) => ({ 
+                                dbId: key, 
+                                ...value 
+                            }))
+                            .sort((a, b) => (a.saveName || '').localeCompare(b.saveName || ''));
+                        setSavedBanks(list);
+                    } else {
+                        setSavedBanks([]);
+                    }
+                });
+
+                return () => {
+                    invoicesUnsubscribe();
+                    clientsUnsubscribe();
+                    banksUnsubscribe();
+                };
+            }, [calculateNextNumber, invoiceData.number]);
+
+            // --- CALCULATIONS ---
+            const { subTotal, total, amountInWords } = useMemo(() => {
+                const sub = invoiceData.items.reduce((acc, item) => {
+                    const qty = parseFloat(item.qty) || 0;
+                    const rate = parseFloat(item.rate) || 0;
+                    return acc + (qty * rate);
+                }, 0);
+                
+                const adjAmount = parseFloat(invoiceData.adjustmentAmount) || 0;
+                const tot = sub + adjAmount;
+                
+                return {
+                    subTotal: sub,
+                    total: tot,
+                    amountInWords: `Indian Rupee ${numberToWords(Math.abs(Math.round(tot)))}`
+                };
+            }, [invoiceData.items, invoiceData.adjustmentAmount]);
+
+            // --- HANDLERS ---
+            const handleTypeChange = useCallback((newType) => {
+                const nextNum = calculateNextNumber(newType, savedInvoices);
+                setInvoiceData(prev => ({ ...prev, type: newType, number: nextNum }));
+            }, [calculateNextNumber, savedInvoices]);
+
+            const generateNextNumber = useCallback(() => {
+                const nextNum = calculateNextNumber(invoiceData.type, savedInvoices);
+                setInvoiceData(prev => ({ ...prev, number: nextNum }));
+            }, [calculateNextNumber, invoiceData.type, savedInvoices]);
+
+            const handleDateChange = useCallback((val) => {
+                const updates = { date: val };
+                if (val) {
+                    try {
+                        const d = new Date(val);
+                        d.setDate(d.getDate() + 7); 
+                        updates.expiryDate = d.toISOString().split('T')[0];
+                    } catch (e) {
+                        console.error("Date parsing error:", e);
+                    }
+                }
+                setInvoiceData(prev => ({ ...prev, ...updates }));
+            }, []);
+
+            const handleInputChange = useCallback((section, field, value) => {
+                if (section) {
+                    setInvoiceData(prev => ({ 
+                        ...prev, 
+                        [section]: { ...prev[section], [field]: value } 
+                    }));
+                } else {
+                    setInvoiceData(prev => ({ ...prev, [field]: value }));
+                }
+            }, []);
+
+            const handleItemChange = useCallback((id, field, value) => {
+                setInvoiceData(prev => ({ 
+                    ...prev, 
+                    items: prev.items.map(item => 
+                        item.id === id ? { ...item, [field]: value } : item
+                    ) 
+                }));
+            }, []);
+
+            const addItem = useCallback(() => {
+                setInvoiceData(prev => ({ 
+                    ...prev, 
+                    items: [
+                        ...prev.items, 
+                        { 
+                            id: Math.max(...prev.items.map(i => i.id), 0) + 1, 
+                            item: '', 
+                            description: '', 
+                            qty: 1, 
+                            rate: 0 
+                        }
+                    ] 
+                }));
+            }, []);
+
+            const removeItem = useCallback((id) => {
+                if (invoiceData.items.length <= 1) {
+                    alert("Cannot remove the last item. At least one item is required.");
+                    return;
+                }
+                setInvoiceData(prev => ({ 
+                    ...prev, 
+                    items: prev.items.filter(item => item.id !== id) 
+                }));
+            }, [invoiceData.items.length]);
+
+            const handleAdjustmentPercentage = useCallback((val) => {
+                const pct = parseFloat(val);
+                if (isNaN(pct)) { 
+                    setInvoiceData(prev => ({ 
+                        ...prev, 
+                        adjustmentPercentage: val 
+                    })); 
+                    return; 
+                }
+                const amount = -1 * (subTotal * pct / 100); 
+                setInvoiceData(prev => ({ 
+                    ...prev, 
+                    adjustmentPercentage: pct, 
+                    adjustmentAmount: parseFloat(amount.toFixed(2)), 
+                    adjustmentLabel: `Adjustment ${pct}%` 
+                }));
+            }, [subTotal]);
+
+            const handleAdjustmentAmount = useCallback((val) => {
+                const amount = parseFloat(val);
+                if (isNaN(amount)) { 
+                    setInvoiceData(prev => ({ 
+                        ...prev, 
+                        adjustmentAmount: val 
+                    })); 
+                    return; 
+                }
+                const pct = subTotal !== 0 ? Math.abs((amount / subTotal) * 100) : 0;
+                const formattedPct = parseFloat(pct.toFixed(2));
+                setInvoiceData(prev => ({ 
+                    ...prev, 
+                    adjustmentAmount: amount, 
+                    adjustmentPercentage: formattedPct, 
+                    adjustmentLabel: `Adjustment ${formattedPct}%` 
+                }));
+            }, [subTotal]);
+
+            const handleBankChange = useCallback((field, value) => {
+                setInvoiceData(prev => {
+                    const newDetails = { ...prev.bankDetails, [field]: value };
+                    if ((field === 'bankName' || field === 'accountNumber') && 
+                        (!newDetails.saveName || newDetails.saveName.includes('-'))) {
+                        const last4 = (newDetails.accountNumber || '').slice(-4);
+                        newDetails.saveName = `${newDetails.bankName || 'Bank'} ${last4 ? '- ' + last4 : ''}`.trim();
+                    }
+                    return { ...prev, bankDetails: newDetails };
+                });
+            }, []);
+
+            const addClientField = useCallback(() => {
+                setInvoiceData(prev => ({ 
+                    ...prev, 
+                    client: { 
+                        ...prev.client, 
+                        customFields: [...(prev.client.customFields || []), { value: '' }] 
+                    } 
+                }));
+            }, []);
+
+            const updateClientField = useCallback((index, val) => {
+                setInvoiceData(prev => {
+                    const newFields = [...(prev.client.customFields || [])];
+                    newFields[index] = { value: val };
+                    return { 
+                        ...prev, 
+                        client: { ...prev.client, customFields: newFields } 
+                    };
+                });
+            }, []);
+
+            const removeClientField = useCallback((index) => {
+                setInvoiceData(prev => {
+                    const newFields = [...(prev.client.customFields || [])];
+                    newFields.splice(index, 1);
+                    return { 
+                        ...prev, 
+                        client: { ...prev.client, customFields: newFields } 
+                    };
+                });
+            }, []);
+
+            // --- SAVE/DELETE LOGIC ---
+            const saveInvoice = useCallback(async () => {
+                if (isSaving) return;
+                
+                setIsSaving(true);
+                try {
+                    await push(ref(db, 'invoices'), { 
+                        ...invoiceData, 
+                        savedAt: serverTimestamp(), 
+                        totalAmount: total,
+                        logoImage: logoImage || null,
+                        signatureImage: signatureImage || null
+                    });
+                    
+                    const saveBtn = document.querySelector('[data-save-btn]');
+                    if (saveBtn) {
+                        const originalText = saveBtn.querySelector('span').textContent;
+                        saveBtn.querySelector('span').textContent = 'Saved!';
+                        setTimeout(() => {
+                            if (saveBtn.querySelector('span')) {
+                                saveBtn.querySelector('span').textContent = originalText;
+                            }
+                        }, 2000);
+                    }
+                } catch (error) { 
+                    console.error("Save invoice error:", error); 
+                    alert("Failed to save invoice. Please check your connection."); 
+                } finally {
+                    setIsSaving(false);
+                }
+            }, [invoiceData, total, isSaving, logoImage, signatureImage]);
+
+            const loadInvoice = useCallback((saved) => {
+                const { dbId, savedAt, totalAmount, ...clean } = saved;
+                if (!clean.client.customFields) clean.client.customFields = [];
+                setInvoiceData(clean);
+                if (clean.logoImage) setLogoImage(clean.logoImage);
+                if (clean.signatureImage) setSignatureImage(clean.signatureImage);
+                setShowHistory(false);
+            }, []);
+
+            const deleteInvoice = useCallback(async (dbId) => {
+                if (!window.confirm("Are you sure you want to delete this invoice?")) return;
+                
+                try { 
+                    await remove(ref(db, `invoices/${dbId}`)); 
+                    setSavedInvoices(prev => prev.filter(inv => inv.dbId !== dbId));
+                } 
+                catch (e) { 
+                    console.error("Delete invoice error:", e); 
+                    alert("Failed to delete invoice. Please try again."); 
+                }
+            }, []);
+
+            const saveClient = useCallback(async () => {
+                if (!invoiceData.client.company.trim()) {
+                    alert("Please enter a Company Name.");
+                    return;
+                }
+                
+                try { 
+                    await push(ref(db, 'clients'), invoiceData.client); 
+                    alert("Client saved successfully!"); 
+                } 
+                catch (e) { 
+                    console.error("Save client error:", e); 
+                    alert("Error saving client: " + e.message); 
+                }
+            }, [invoiceData.client]);
+
+            const selectClient = useCallback((c) => {
+                const { dbId, ...data } = c;
+                setInvoiceData(prev => ({ 
+                    ...prev, 
+                    client: { ...data, customFields: data.customFields || [] } 
+                }));
+            }, []);
+
+            const deleteClient = useCallback(async (dbId) => {
+                if (!window.confirm("Are you sure you want to delete this client?")) return;
+                
+                try { 
+                    await remove(ref(db, `clients/${dbId}`)); 
+                    setSavedClients(prev => prev.filter(client => client.dbId !== dbId));
+                }
+                catch(e) { 
+                    console.error("Delete client error:", e); 
+                    alert("Failed to delete client: " + e.message); 
+                }
+            }, []);
+
+            const saveBank = useCallback(async () => {
+                const { bankName, saveName } = invoiceData.bankDetails;
+                if (!bankName?.trim()) {
+                    alert("Please enter a Bank Name.");
+                    return;
+                }
+                if (!saveName?.trim()) {
+                    alert("Please enter a Save Name.");
+                    return;
+                }
+                
+                setIsSavingBank(true);
+                try { 
+                    await push(ref(db, 'bank_accounts'), invoiceData.bankDetails);
+                    alert("Bank details saved successfully!");
+                } catch (e) { 
+                    console.error("Save bank error:", e); 
+                    alert("Error saving bank details: " + e.message); 
+                } finally { 
+                    setIsSavingBank(false); 
+                }
+            }, [invoiceData.bankDetails]);
+
+            const selectBank = useCallback((b) => {
+                const { dbId, ...data } = b;
+                setInvoiceData(prev => ({ ...prev, bankDetails: data }));
+            }, []);
+
+            const deleteBank = useCallback(async (dbId) => {
+                if (!window.confirm("Are you sure you want to delete these bank details?")) return;
+                
+                try { 
+                    await remove(ref(db, `bank_accounts/${dbId}`)); 
+                    setSavedBanks(prev => prev.filter(bank => bank.dbId !== dbId));
+                } catch(e) { 
+                    console.error("Delete bank error:", e); 
+                    alert("Failed to delete bank details: " + e.message); 
+                }
+            }, []);
+
+            const handlePrint = useCallback(() => {
+                setIsPrinting(true);
+                setTimeout(() => {
+                    window.print();
+                    setTimeout(() => setIsPrinting(false), 1000);
+                }, 300);
+            }, []);
+
+            const resetToDefault = useCallback(() => {
+                if (window.confirm("Reset all fields to default? This will clear all current data.")) {
+                    setInvoiceData(defaultData);
+                }
+            }, [defaultData]);
+
+            // --- FULL PAGE INVOICE COMPONENT (for printing) ---
+            const FullPageInvoice = () => (
+                <div className="compact-invoice bg-white p-8 min-h-[297mm] max-w-[210mm] mx-auto print:p-8 print:m-0 print:min-h-[297mm] print:max-w-[210mm]">
+                    {/* Header with logo */}
+                    <div className="flex justify-between items-start mb-6 pb-4 border-b border-gray-300">
+                        <div className="w-2/5">
+                            {logoImage ? (
+                                <img src={logoImage} alt="Logo" className="h-16 mb-3" />
+                            ) : (
+                                <div className="mb-3">
+                                    <h1 className="text-3xl font-bold leading-tight">
+                                        <span className="text-black">possible</span>
+                                        <br />
+                                        <span className="text-gray-500 font-light">studio</span>
+                                    </h1>
+                                </div>
+                            )}
+                            <div className="text-sm text-gray-700 space-y-1">
+                                <p className="font-semibold">{invoiceData.sender.name}</p>
+                                <p>{invoiceData.sender.addressLine1}</p>
+                                <p>{invoiceData.sender.addressLine2}</p>
+                                <p className="mt-2">📞 {invoiceData.sender.phone}</p>
+                                <p>✉️ {invoiceData.sender.email}</p>
+                                <p>🌐 {invoiceData.sender.website}</p>
+                            </div>
+                        </div>
+                        <div className="w-3/5 text-right">
+                            <h2 className="text-4xl font-light text-gray-300 mb-4 uppercase tracking-widest">{invoiceData.type}</h2>
+                            <div className="inline-block bg-gray-50 p-4 rounded-lg border border-gray-200 text-left">
+                                <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+                                    <div className="font-semibold text-gray-700">{invoiceData.type} #</div>
+                                    <div className="font-bold text-lg">{invoiceData.number}</div>
+                                    <div className="font-semibold text-gray-700">Date</div>
+                                    <div className="font-medium">{invoiceData.date.split('-').reverse().join('/')}</div>
+                                    {invoiceData.expiryDate && (
+                                        <>
+                                            <div className="font-semibold text-gray-700">Expiry</div>
+                                            <div className="font-medium">{invoiceData.expiryDate.split('-').reverse().join('/')}</div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Bill To & Subject */}
+                    <div className="flex justify-between mb-6">
+                        <div className="w-1/2">
+                            <h3 className="text-sm font-bold text-gray-600 uppercase mb-2">Bill To</h3>
+                            <div className="text-base">
+                                <p className="font-bold text-xl mb-2">{invoiceData.client.company || '[Client Company]'}</p>
+                                <div className="space-y-1 text-gray-700">
+                                    {invoiceData.client.addressLine1 && <p>{invoiceData.client.addressLine1}</p>}
+                                    {invoiceData.client.addressLine2 && <p>{invoiceData.client.addressLine2}</p>}
+                                    {invoiceData.client.cityStateZip && <p>{invoiceData.client.cityStateZip}</p>}
+                                    {invoiceData.client.country && <p>{invoiceData.client.country}</p>}
+                                    {(invoiceData.client.customFields || []).map((f, i) => f.value && <p key={i}>{f.value}</p>)}
+                                </div>
+                            </div>
+                        </div>
+                        {invoiceData.subject && (
+                            <div className="w-1/2 text-right">
+                                <h3 className="text-sm font-bold text-gray-600 uppercase mb-2">Subject</h3>
+                                <p className="text-lg font-medium">{invoiceData.subject}</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Items Table */}
+                    <div className="mb-8">
+                        <table className="w-full border-collapse">
+                            <thead>
+                                <tr className="border-y-2 border-gray-800">
+                                    <th className="py-3 text-left font-bold text-gray-800 text-sm">#</th>
+                                    <th className="py-3 text-left font-bold text-gray-800 text-sm">Item & Description</th>
+                                    <th className="py-3 text-right font-bold text-gray-800 text-sm">Qty</th>
+                                    <th className="py-3 text-right font-bold text-gray-800 text-sm">Rate</th>
+                                    <th className="py-3 text-right font-bold text-gray-800 text-sm">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {invoiceData.items.map((item, index) => (
+                                    <tr key={item.id} className="border-b border-gray-200">
+                                        <td className="py-3 align-top text-gray-600">{index + 1}</td>
+                                        <td className="py-3 align-top">
+                                            <p className="font-bold text-gray-900 mb-1">{item.item || '[Item Name]'}</p>
+                                            <p className="text-gray-600 text-sm whitespace-pre-wrap leading-relaxed">
+                                                {item.description || '[Description]'}
+                                            </p>
+                                        </td>
+                                        <td className="py-3 align-top text-right text-gray-600">
+                                            {parseFloat(item.qty || 0).toFixed(2)}
+                                        </td>
+                                        <td className="py-3 align-top text-right text-gray-600">
+                                            ₹{formatCurrency(item.rate || 0)}
+                                        </td>
+                                        <td className="py-3 align-top text-right font-medium text-gray-900">
+                                            ₹{formatCurrency((item.qty || 0) * (item.rate || 0))}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Footer with totals and signature */}
+                    <div className="flex justify-between items-start">
+                        <div className="w-3/5 space-y-6">
+                            <div>
+                                <p className="text-sm font-semibold text-gray-600 mb-1">Amount In Words:</p>
+                                <p className="text-gray-800 font-medium italic bg-yellow-50 p-3 rounded border border-yellow-100">
+                                    {amountInWords}
+                                </p>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <h4 className="font-bold text-gray-800 mb-2 text-sm uppercase">Bank Details</h4>
+                                <div className="grid grid-cols-[140px_1fr] gap-y-2 text-sm text-gray-700">
+                                    <span className="font-semibold text-gray-600">Account Name:</span>
+                                    <span>{invoiceData.bankDetails.accountName || '[Account Name]'}</span>
+                                    <span className="font-semibold text-gray-600">Bank Name:</span>
+                                    <span>{invoiceData.bankDetails.bankName || '[Bank Name]'}</span>
+                                    <span className="font-semibold text-gray-600">Account No:</span>
+                                    <span>{invoiceData.bankDetails.accountNumber || '[Account Number]'}</span>
+                                    <span className="font-semibold text-gray-600">IFSC Code:</span>
+                                    <span>{invoiceData.bankDetails.ifsc || '[IFSC Code]'}</span>
+                                </div>
+                            </div>
+                            {invoiceData.notes && (
+                                <div className="pt-4 border-t border-gray-200">
+                                    <p className="text-gray-600 text-sm italic">{invoiceData.notes}</p>
+                                </div>
+                            )}
+                        </div>
+                        <div className="w-2/5 pl-6">
+                            <div className="space-y-3 border-b border-gray-300 pb-4 mb-4">
+                                <div className="flex justify-between">
+                                    <span className="font-semibold text-gray-700">Sub Total</span>
+                                    <span className="font-medium">₹{formatCurrency(subTotal)}</span>
+                                </div>
+                                {invoiceData.adjustmentAmount !== 0 && (
+                                    <div className="flex justify-between">
+                                        <span className="font-semibold text-gray-700">{invoiceData.adjustmentLabel || 'Adjustment'}</span>
+                                        <span className={`font-medium ${invoiceData.adjustmentAmount < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                            {invoiceData.adjustmentAmount < 0 ? '-' : '+'}₹{formatCurrency(Math.abs(invoiceData.adjustmentAmount))}
+                                        </span>
+                                    </div>
+                                )}
+                                <div className="flex justify-between text-lg font-bold pt-3 border-t border-gray-300">
+                                    <span>Total</span>
+                                    <span>₹{formatCurrency(total)}</span>
+                                </div>
+                            </div>
+                            <div className="text-right mt-8">
+                                {signatureImage ? (
+                                    <img src={signatureImage} alt="Signature" className="h-20 mx-auto mb-2" />
+                                ) : (
+                                    <p className="font-script text-2xl mb-2 text-blue-900" style={{fontFamily: 'cursive'}}>
+                                        {invoiceData.signatory}
+                                    </p>
+                                )}
+                                <p className="border-t border-gray-300 pt-2 text-sm uppercase tracking-wider font-semibold text-gray-600">
+                                    Authorized Signature
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Page footer */}
+                    <div className="mt-8 pt-4 border-t border-gray-300 text-center text-xs text-gray-500">
+                        {invoiceData.type} #{invoiceData.number} • Generated on {new Date().toLocaleDateString('en-IN')} • {invoiceData.sender.email}
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen bg-gray-100 pb-12 print:bg-white print:pb-0 print:h-auto print:overflow-visible relative">
+                    {/* Live Preview Overlay */}
+                    {showPreview && (
+                        <div className="preview-overlay print:hidden">
+                            <div className="bg-gray-800 text-white p-2 text-xs font-bold flex justify-between items-center">
+                                <span>Live Preview</span>
+                                <button onClick={() => setShowPreview(false)} className="text-white hover:text-gray-300">
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                            <div className="preview-content">
+                                <CompactInvoicePreview 
+                                    invoiceData={invoiceData}
+                                    subTotal={subTotal}
+                                    total={total}
+                                    amountInWords={amountInWords}
+                                    logoImage={logoImage}
+                                    signatureImage={signatureImage}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Sidebar */}
+                    <div 
+                        data-history-sidebar
+                        className={`fixed inset-y-0 right-0 w-80 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-[60] print:hidden flex flex-col ${showHistory ? 'translate-x-0' : 'translate-x-full'}`}
+                    >
+                        <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                            <h2 className="font-bold text-gray-800 flex items-center gap-2">
+                                <History className="w-4 h-4" /> Invoice History
+                            </h2>
+                            <button 
+                                onClick={() => setShowHistory(false)} 
+                                className="p-1 hover:bg-gray-200 rounded-full transition-colors"
+                            >
+                                <X className="w-5 h-5 text-gray-500" />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                            {savedInvoices.length === 0 ? (
+                                <div className="text-center text-gray-400 py-8 text-sm">
+                                    <p>No saved invoices yet.</p>
+                                </div>
+                            ) : savedInvoices.map((inv) => (
+                                <div 
+                                    key={inv.dbId} 
+                                    onClick={() => loadInvoice(inv)} 
+                                    className="group bg-white border border-gray-200 rounded-lg p-3 hover:border-blue-500 hover:shadow-md cursor-pointer transition-all duration-200 relative"
+                                >
+                                    <div className="flex justify-between items-start mb-1">
+                                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${inv.type === 'QUOTE' ? 'bg-orange-100 text-orange-700' : inv.type === 'INVOICE' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                                            {inv.type}
+                                        </span>
+                                        <button
+                                            onClick={(e) => { 
+                                                e.stopPropagation(); 
+                                                deleteInvoice(inv.dbId); 
+                                            }} 
+                                            className="p-1.5 rounded hover:bg-red-100 text-gray-300 hover:text-red-500 transition-colors"
+                                            title="Delete"
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                    <div className="text-sm font-semibold text-gray-800 mb-0.5 pr-6 truncate">
+                                        {inv.client?.company || 'Unknown Client'}
+                                    </div>
+                                    <div className="flex justify-between items-end text-xs text-gray-500">
+                                        <span>{inv.number || 'No Number'}</span>
+                                        <span>{formatDateShort(inv.savedAt)}</span>
+                                    </div>
+                                    <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
+                                        <span className="font-bold text-gray-900">
+                                            ₹{formatCurrency(inv.totalAmount || 0)}
+                                        </span>
+                                        <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-blue-500 transition-colors" />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    
+                    {showHistory && (
+                        <div 
+                            className="fixed inset-0 bg-black/20 z-[55] print:hidden" 
+                            onClick={() => setShowHistory(false)} 
+                        />
+                    )}
+
+                    {/* Toolbar */}
+                    <div className="bg-white border-b sticky top-0 z-50 print:hidden shadow-sm">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+                            <div className="flex items-center space-x-3">
+                                <div className="bg-blue-600 p-2 rounded-lg">
+                                    <FileText className="text-white w-5 h-5" />
+                                </div>
+                                <h1 className="text-xl font-bold text-gray-900 hidden sm:block">
+                                    Possible Studio Invoice Generator
+                                </h1>
+                                {dbStatus === 'connected' && (
+                                    <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full border border-green-100">
+                                        ● Connected
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex space-x-2">
+                                <button 
+                                    onClick={() => setMode(mode === 'edit' ? 'preview' : 'edit')} 
+                                    className="md:hidden px-3 py-2 border rounded-md hover:bg-gray-50 text-sm font-medium transition-colors"
+                                >
+                                    {mode === 'edit' ? 'Preview' : 'Edit'}
+                                </button>
+                                <button 
+                                    onClick={() => setShowPreview(!showPreview)}
+                                    className="px-3 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors flex items-center gap-2"
+                                >
+                                    <Eye className="w-4 h-4" />
+                                    <span className="hidden sm:inline">Preview</span>
+                                </button>
+                                <button 
+                                    onClick={resetToDefault}
+                                    className="px-3 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors"
+                                >
+                                    Reset
+                                </button>
+                                <button 
+                                    data-history-btn
+                                    onClick={() => setShowHistory(true)} 
+                                    className="flex items-center space-x-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-md shadow-sm transition-colors text-sm font-medium"
+                                >
+                                    <History className="w-4 h-4" />
+                                    <span className="hidden sm:inline">History</span>
+                                </button>
+                                <button 
+                                    data-save-btn
+                                    onClick={saveInvoice} 
+                                    disabled={isSaving}
+                                    className={`flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-md shadow-sm transition-colors text-sm font-medium ${isSaving ? 'opacity-75 cursor-not-allowed' : ''}`}
+                                >
+                                    {isSaving ? <Loader className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                    <span className="hidden sm:inline">{isSaving ? 'Saving...' : 'Save'}</span>
+                                </button>
+                                <button 
+                                    onClick={handlePrint} 
+                                    disabled={isPrinting}
+                                    className={`flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-md shadow-sm transition-colors text-sm font-medium ${isPrinting ? 'opacity-75 cursor-wait' : ''}`}
+                                >
+                                    {isPrinting ? (
+                                        <>
+                                            <Loader className="w-4 h-4 animate-spin" />
+                                            <span>Preparing...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Printer className="w-4 h-4" />
+                                            <span className="hidden sm:inline">Print</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 print:p-0 print:w-full print:max-w-none">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 print:grid-cols-1">
+                            
+                            {/* Editor */}
+                            <div className={`space-y-6 ${mode === 'preview' ? 'hidden lg:block' : ''} print:hidden`}>
+                                {/* Branding Images */}
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                                    <h2 className="text-lg font-semibold mb-4 flex items-center text-gray-700">
+                                        <Image className="w-5 h-5 mr-2" /> Branding
+                                    </h2>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <ImageUpload 
+                                            label="Company Logo"
+                                            currentImage={logoImage}
+                                            onImageChange={setLogoImage}
+                                            maxSizeMB={1}
+                                        />
+                                        <ImageUpload 
+                                            label="Signature Image"
+                                            currentImage={signatureImage}
+                                            onImageChange={setSignatureImage}
+                                            aspectRatio="wide"
+                                            maxSizeMB={1}
+                                        />
+                                    </div>
+                                    <div className="mt-4 text-xs text-gray-500">
+                                        <p>• Logo will appear at the top left of the invoice</p>
+                                        <p>• Signature will replace the typed signature</p>
+                                        <p>• Images are saved locally in your browser</p>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                                    <h2 className="text-lg font-semibold mb-4 flex items-center text-gray-700">
+                                        <Settings className="w-5 h-5 mr-2" /> Document Details
+                                    </h2>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Doc Type</label>
+                                            <select 
+                                                value={invoiceData.type} 
+                                                onChange={(e) => handleTypeChange(e.target.value)} 
+                                                className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
+                                            >
+                                                <option value="INVOICE">INVOICE</option>
+                                                <option value="QUOTE">QUOTE</option>
+                                                <option value="ESTIMATE">ESTIMATE</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Doc Number</label>
+                                            <div className="flex gap-2">
+                                                <input 
+                                                    type="text" 
+                                                    value={invoiceData.number} 
+                                                    onChange={(e) => handleInputChange(null, 'number', e.target.value)} 
+                                                    className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    placeholder="e.g., INV-000001"
+                                                />
+                                                <button 
+                                                    onClick={generateNextNumber} 
+                                                    title="Generate Next" 
+                                                    className="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 p-2 rounded-md transition-colors"
+                                                >
+                                                    <RefreshCw className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Date</label>
+                                            <input 
+                                                type="date" 
+                                                value={invoiceData.date} 
+                                                onChange={(e) => handleDateChange(e.target.value)} 
+                                                className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Expiry Date</label>
+                                            <input 
+                                                type="date" 
+                                                value={invoiceData.expiryDate} 
+                                                onChange={(e) => handleInputChange(null, 'expiryDate', e.target.value)} 
+                                                className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+                                            />
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Subject</label>
+                                            <input 
+                                                type="text" 
+                                                value={invoiceData.subject} 
+                                                onChange={(e) => handleInputChange(null, 'subject', e.target.value)} 
+                                                className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+                                                placeholder="Invoice/Quote subject..."
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h2 className="text-lg font-semibold text-gray-700">Parties</h2>
+                                        {savedClients.length > 0 && (
+                                            <div className="flex items-center gap-2">
+                                                <Users className="w-4 h-4 text-gray-500" />
+                                                <CustomDropdown 
+                                                    options={savedClients} 
+                                                    placeholder="Load Client..." 
+                                                    displayKey={(c) => c.company || 'Unnamed Client'} 
+                                                    onSelect={selectClient} 
+                                                    onDelete={deleteClient} 
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="space-y-3">
+                                            <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500">From (You)</h3>
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Company" value={invoiceData.sender.name} onChange={(e) => handleInputChange('sender', 'name', e.target.value)} />
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Addr 1" value={invoiceData.sender.addressLine1} onChange={(e) => handleInputChange('sender', 'addressLine1', e.target.value)} />
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Addr 2" value={invoiceData.sender.addressLine2} onChange={(e) => handleInputChange('sender', 'addressLine2', e.target.value)} />
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Phone" value={invoiceData.sender.phone} onChange={(e) => handleInputChange('sender', 'phone', e.target.value)} />
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Email" value={invoiceData.sender.email} onChange={(e) => handleInputChange('sender', 'email', e.target.value)} />
+                                        </div>
+                                        <div className="space-y-3">
+                                            <div className="flex justify-between items-center">
+                                                <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500">Bill To</h3>
+                                                <button 
+                                                    onClick={saveClient} 
+                                                    className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors"
+                                                >
+                                                    <UserPlus className="w-3 h-3" /> Save Client
+                                                </button>
+                                            </div>
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Client Company" value={invoiceData.client.company} onChange={(e) => handleInputChange('client', 'company', e.target.value)} />
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Addr 1" value={invoiceData.client.addressLine1} onChange={(e) => handleInputChange('client', 'addressLine1', e.target.value)} />
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Addr 2" value={invoiceData.client.addressLine2} onChange={(e) => handleInputChange('client', 'addressLine2', e.target.value)} />
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="City, Zip" value={invoiceData.client.cityStateZip} onChange={(e) => handleInputChange('client', 'cityStateZip', e.target.value)} />
+                                            
+                                            {(invoiceData.client.customFields || []).map((field, i) => (
+                                                <div key={i} className="flex gap-2">
+                                                    <input 
+                                                        className="w-full p-2 border rounded text-sm bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                        placeholder="Extra Info (e.g. GSTIN)" 
+                                                        value={field.value} 
+                                                        onChange={(e) => updateClientField(i, e.target.value)} 
+                                                    />
+                                                    <button 
+                                                        onClick={() => removeClientField(i)} 
+                                                        className="text-red-400 hover:text-red-600 transition-colors p-2"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            
+                                            <div className="pt-1">
+                                                <button 
+                                                    onClick={addClientField} 
+                                                    className="text-xs flex items-center gap-1 text-gray-500 hover:text-blue-600 border border-dashed border-gray-300 px-2 py-1 rounded w-full justify-center hover:bg-gray-50 transition-colors"
+                                                    title="Add extra field"
+                                                >
+                                                    <Plus className="w-3 h-3" /> Add Field
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h2 className="text-lg font-semibold text-gray-700">Items</h2>
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={addItem} 
+                                                className="text-sm flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                                            >
+                                                <Plus className="w-4 h-4 mr-1" /> Add Item
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-3 max-h-96 overflow-y-auto custom-scrollbar p-1">
+                                        {invoiceData.items.map((item, index) => (
+                                            <div key={item.id} className="p-3 border rounded-lg bg-gray-50 relative group hover:bg-gray-100 transition-colors">
+                                                <button 
+                                                    onClick={() => removeItem(item.id)} 
+                                                    className="absolute top-2 right-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
+                                                    title="Remove item"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                                <div className="grid grid-cols-12 gap-2">
+                                                    <div className="col-span-7">
+                                                        <input 
+                                                            placeholder="Item" 
+                                                            className="w-full p-2 border rounded mb-1 font-medium text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                            value={item.item} 
+                                                            onChange={(e) => handleItemChange(item.id, 'item', e.target.value)} 
+                                                        />
+                                                        <textarea 
+                                                            placeholder="Description" 
+                                                            className="w-full p-2 border rounded text-sm text-gray-600 h-16 resize-none focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                            value={item.description} 
+                                                            onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} 
+                                                        />
+                                                    </div>
+                                                    <div className="col-span-5 space-y-2">
+                                                        <div>
+                                                            <label className="text-xs text-gray-500">Qty</label>
+                                                            <input 
+                                                                type="number" 
+                                                                min="0"
+                                                                step="0.01"
+                                                                className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                                value={item.qty} 
+                                                                onChange={(e) => handleItemChange(item.id, 'qty', parseFloat(e.target.value) || 0)} 
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs text-gray-500">Rate</label>
+                                                            <input 
+                                                                type="number" 
+                                                                min="0"
+                                                                step="0.01"
+                                                                className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                                value={item.rate} 
+                                                                onChange={(e) => handleItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)} 
+                                                            />
+                                                        </div>
+                                                        <div className="pt-1">
+                                                            <div className="text-xs text-gray-500">Amount</div>
+                                                            <div className="font-medium text-gray-900 text-sm">
+                                                                ₹{formatCurrency((item.qty || 0) * (item.rate || 0))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="mt-3 text-xs text-gray-500">
+                                        {invoiceData.items.length} items • Total: ₹{formatCurrency(subTotal)}
+                                    </div>
+                                </div>
+
+                                {/* Financials */}
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                                    <h2 className="text-lg font-semibold mb-4 text-gray-700">Financials</h2>
+                                    <div className="mb-6 grid grid-cols-12 gap-4">
+                                        <div className="col-span-6">
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Adjustment %</label>
+                                            <input 
+                                                type="number" 
+                                                step="0.01"
+                                                className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                value={invoiceData.adjustmentPercentage} 
+                                                onChange={(e) => handleAdjustmentPercentage(e.target.value)} 
+                                                placeholder="%" 
+                                            />
+                                        </div>
+                                        <div className="col-span-6">
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Adjustment Amount</label>
+                                            <input 
+                                                type="number" 
+                                                step="0.01"
+                                                className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                value={invoiceData.adjustmentAmount} 
+                                                onChange={(e) => handleAdjustmentAmount(e.target.value)} 
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="bg-gray-100 p-4 rounded-lg border border-gray-200">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-gray-600 font-semibold">Subtotal</span>
+                                            <span className="text-lg font-bold text-gray-800">₹{formatCurrency(subTotal)}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-gray-600 font-semibold">Adjustment</span>
+                                            <span className={`text-lg font-bold ${invoiceData.adjustmentAmount < 0 ? 'text-red-600' : 'text-gray-800'}`}>
+                                                {invoiceData.adjustmentAmount < 0 ? '-' : '+'}₹{formatCurrency(Math.abs(invoiceData.adjustmentAmount))}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center pt-2 border-t border-gray-300">
+                                            <span className="text-gray-800 font-bold text-lg">Total Amount</span>
+                                            <span className="text-2xl font-bold text-gray-900">₹{formatCurrency(total)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Bank Details */}
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                                    <h2 className="text-lg font-semibold mb-4 text-gray-700">Bank Details</h2>
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center bg-gray-50 p-3 rounded border border-gray-200">
+                                            <span className="text-xs font-bold text-gray-500 uppercase">Load Saved Bank</span>
+                                            <div className="w-48">
+                                                {savedBanks.length > 0 ? (
+                                                    <CustomDropdown 
+                                                        options={savedBanks} 
+                                                        placeholder="Select Bank..." 
+                                                        displayKey={(b) => b.saveName || 'Unnamed Bank'} 
+                                                        onSelect={selectBank} 
+                                                        onDelete={deleteBank} 
+                                                    />
+                                                ) : <span className="text-xs text-gray-400">No saved banks</span>}
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-3 pt-2">
+                                            <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Details</label>
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Account Name" value={invoiceData.bankDetails.accountName} onChange={(e) => handleBankChange('accountName', e.target.value)} />
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Bank Name" value={invoiceData.bankDetails.bankName} onChange={(e) => handleBankChange('bankName', e.target.value)} />
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Account Number" value={invoiceData.bankDetails.accountNumber} onChange={(e) => handleBankChange('accountNumber', e.target.value)} />
+                                            <input className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="IFSC Code" value={invoiceData.bankDetails.ifsc} onChange={(e) => handleBankChange('ifsc', e.target.value)} />
+                                        </div>
+
+                                        <div className="pt-4 border-t border-gray-100">
+                                            <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Save As</label>
+                                            <div className="flex gap-2">
+                                                <input 
+                                                    className="w-full p-2 border rounded text-sm bg-blue-50/50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                    placeholder="e.g. HDFC Company Account" 
+                                                    value={invoiceData.bankDetails.saveName} 
+                                                    onChange={(e) => handleBankChange('saveName', e.target.value)} 
+                                                />
+                                                <button 
+                                                    onClick={saveBank} 
+                                                    disabled={isSavingBank} 
+                                                    className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-sm flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    {isSavingBank ? <Loader className="w-4 h-4 animate-spin" /> : <Landmark className="w-4 h-4" />}
+                                                    <span>{isSavingBank ? 'Saving...' : 'Save'}</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Additional Notes */}
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                                    <h2 className="text-lg font-semibold mb-4 text-gray-700">Additional Details</h2>
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Signatory Name</label>
+                                            <input 
+                                                type="text" 
+                                                className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                value={invoiceData.signatory} 
+                                                onChange={(e) => handleInputChange(null, 'signatory', e.target.value)} 
+                                                placeholder="Name that appears on signature"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Notes</label>
+                                            <textarea 
+                                                className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none h-32 resize-none" 
+                                                value={invoiceData.notes} 
+                                                onChange={(e) => handleInputChange(null, 'notes', e.target.value)} 
+                                                placeholder="Additional notes for the invoice..."
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Preview/Print Area */}
+                            <div className={`${mode === 'edit' ? 'hidden lg:block' : 'block'} print:block`}>
+                                <FullPageInvoice />
+                                
+                                <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200 print:hidden">
+                                    <div className="flex items-start">
+                                        <div className="bg-blue-100 p-2 rounded mr-3">
+                                            <Printer className="w-5 h-5 text-blue-600" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-semibold text-blue-800 mb-1">Printing Tips</h3>
+                                            <ul className="text-sm text-blue-700 space-y-1">
+                                                <li>• Ensure all content fits on a single A4 page</li>
+                                                <li>• Use "Save as PDF" option in print dialog for digital copies</li>
+                                                <li>• Set margins to "None" or "Minimum" for best fit</li>
+                                                <li>• Preview shows exactly what will print</li>
+                                                <li>• Keep items under 8-10 for best readability</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Status Bar */}
+                    <div className="fixed bottom-0 left-0 right-0 bg-gray-800 text-white text-xs py-2 px-4 print:hidden">
+                        <div className="max-w-7xl mx-auto flex justify-between items-center">
+                            <div className="flex items-center space-x-4">
+                                <span>Possible Studio Invoice Generator</span>
+                                <span className="text-gray-300">•</span>
+                                <span className="text-gray-300">Items: {invoiceData.items.length}</span>
+                                <span className="text-gray-300">•</span>
+                                <span className="text-gray-300">{invoiceData.type}</span>
+                            </div>
+                            <span className="font-medium">
+                                Total: ₹{formatCurrency(total)}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<InvoiceApp />);
+    </script>
+</body>
+</html>
