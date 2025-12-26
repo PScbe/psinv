@@ -42,45 +42,16 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #999; }
         
-        /* Image upload styling */
-        .image-upload-container {
-            position: relative;
-            border: 2px dashed #d1d5db;
-            border-radius: 8px;
-            overflow: hidden;
-            background: #f9fafb;
-            transition: all 0.3s ease;
+        /* Compact invoice styling */
+        .compact-invoice {
+            font-size: 10pt;
+            line-height: 1.2;
         }
-        .image-upload-container:hover {
-            border-color: #3b82f6;
-            background: #f0f9ff;
+        .compact-invoice table {
+            font-size: 9pt;
         }
-        .image-upload-container.dragover {
-            border-color: #3b82f6;
-            background: #dbeafe;
-        }
-        .image-preview {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }
-        .image-upload-btn {
-            position: absolute;
-            bottom: 10px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(59, 130, 246, 0.9);
-            color: white;
-            padding: 6px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            cursor: pointer;
-            z-index: 10;
-        }
-        .signature-preview {
-            max-width: 200px;
-            max-height: 80px;
-            object-fit: contain;
+        .compact-invoice .compact-cell {
+            padding: 4px 6px;
         }
         
         /* Live preview overlay */
@@ -104,18 +75,6 @@
             width: 310%;
             height: 310%;
             pointer-events: none;
-        }
-        
-        /* Compact invoice styling */
-        .compact-invoice {
-            font-size: 10pt;
-            line-height: 1.2;
-        }
-        .compact-invoice table {
-            font-size: 9pt;
-        }
-        .compact-invoice .compact-cell {
-            padding: 4px 6px;
         }
     </style>
 </head>
@@ -151,9 +110,6 @@
         const Landmark = ({ className }) => <Icon className={className} path={<><line x1="3" y1="21" x2="21" y2="21"></line><line x1="5" y1="21" x2="5" y2="10"></line><line x1="19" y1="21" x2="19" y2="10"></line><polyline points="5 6 12 3 19 6"></polyline><line x1="4" y1="10" x2="20" y2="10"></line></>} />;
         const ChevronDown = ({ className }) => <Icon className={className} path={<><polyline points="6 9 12 15 18 9"></polyline></>} />;
         const Eye = ({ className }) => <Icon className={className} path={<><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></>} />;
-        const Upload = ({ className }) => <Icon className={className} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></>} />;
-        const Image = ({ className }) => <Icon className={className} path={<><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></>} />;
-
 
         // --- FIREBASE CONFIG ---
         const firebaseConfig = {
@@ -231,16 +187,6 @@
             }
         };
 
-        // Image handling utility
-        const imageToBase64 = (file) => {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => resolve(e.target.result);
-                reader.onerror = (error) => reject(error);
-                reader.readAsDataURL(file);
-            });
-        };
-
         // --- COMPONENTS ---
         const CustomDropdown = React.memo(({ options, onSelect, onDelete, placeholder, displayKey }) => {
             const [isOpen, setIsOpen] = useState(false);
@@ -310,173 +256,23 @@
             );
         });
 
-        // Image Upload Component - FIXED VERSION
-        const ImageUpload = ({ label, currentImage, onImageChange, aspectRatio = "square", maxSizeMB = 2 }) => {
-            const fileInputRef = useRef(null);
-            const [isDragging, setIsDragging] = useState(false);
-            const [previewUrl, setPreviewUrl] = useState(currentImage);
-
-            // Update preview when currentImage changes
-            useEffect(() => {
-                setPreviewUrl(currentImage);
-            }, [currentImage]);
-
-            const handleFileSelect = async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-
-                await processFile(file);
-                
-                // Reset input value so same file can be selected again
-                if (fileInputRef.current) {
-                    fileInputRef.current.value = '';
-                }
-            };
-
-            const processFile = async (file) => {
-                // Check file size
-                if (file.size > maxSizeMB * 1024 * 1024) {
-                    alert(`File size must be less than ${maxSizeMB}MB`);
-                    return;
-                }
-
-                // Check file type
-                if (!file.type.match(/^image\/(jpeg|jpg|png|gif|webp)$/)) {
-                    alert('Please select a valid image file (JPEG, PNG, GIF, WebP)');
-                    return;
-                }
-
-                try {
-                    const base64 = await imageToBase64(file);
-                    onImageChange(base64);
-                    setPreviewUrl(base64);
-                } catch (error) {
-                    console.error('Error processing image:', error);
-                    alert('Error processing image. Please try again.');
-                }
-            };
-
-            const handleDragOver = (e) => {
-                e.preventDefault();
-                setIsDragging(true);
-            };
-
-            const handleDragLeave = (e) => {
-                e.preventDefault();
-                setIsDragging(false);
-            };
-
-            const handleDrop = async (e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                
-                const file = e.dataTransfer.files?.[0];
-                if (file) {
-                    await processFile(file);
-                }
-            };
-
-            const handleRemove = () => {
-                onImageChange('');
-                setPreviewUrl('');
-                if (fileInputRef.current) {
-                    fileInputRef.current.value = '';
-                }
-            };
-
-            const handleContainerClick = () => {
-                if (!previewUrl) {
-                    fileInputRef.current?.click();
-                }
-            };
-
-            return (
-                <div className="space-y-3">
-                    <label className="block text-sm font-medium text-gray-700">{label}</label>
-                    <div 
-                        className={`image-upload-container ${aspectRatio === 'wide' ? 'w-full h-40' : 'w-full h-48'} ${isDragging ? 'dragover' : ''}`}
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                        onClick={handleContainerClick}
-                    >
-                        {previewUrl ? (
-                            <div className="relative w-full h-full">
-                                <img src={previewUrl} alt={label} className="image-preview" />
-                                <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-10 transition-all duration-200 flex items-end justify-center p-4">
-                                    <button 
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            fileInputRef.current?.click();
-                                        }} 
-                                        className="image-upload-btn"
-                                    >
-                                        Change Image
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center h-full p-4 text-gray-400 cursor-pointer">
-                                <Upload className="w-12 h-12 mb-3 text-gray-300" />
-                                <div className="text-center">
-                                    <p className="text-sm font-medium mb-1">Click or drag to upload</p>
-                                    <p className="text-xs">PNG, JPG, GIF up to {maxSizeMB}MB</p>
-                                </div>
-                            </div>
-                        )}
-                        <input
-                            type="file"
-                            ref={fileInputRef}
-                            onChange={handleFileSelect}
-                            accept="image/*"
-                            className="hidden"
-                        />
-                    </div>
-                    {previewUrl && (
-                        <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-500">
-                                ✓ Image uploaded successfully
-                            </span>
-                            <button
-                                type="button"
-                                onClick={handleRemove}
-                                className="text-sm text-red-600 hover:text-red-800 transition-colors flex items-center gap-1"
-                            >
-                                <Trash2 className="w-4 h-4" />
-                                Remove
-                            </button>
-                        </div>
-                    )}
-                </div>
-            );
-        };
-
         // --- COMPACT INVOICE PREVIEW COMPONENT ---
         const CompactInvoicePreview = React.memo(({ 
             invoiceData, 
             subTotal, 
             total, 
-            amountInWords,
-            logoImage,
-            signatureImage 
+            amountInWords
         }) => {
             return (
                 <div className="compact-invoice bg-white p-6 border border-gray-300 rounded-lg shadow-sm print:shadow-none print:border-0 print:p-0 print:rounded-none">
                     {/* Header */}
                     <div className="header-section mb-4 flex justify-between items-start border-b pb-3">
                         <div className="w-2/5">
-                            {logoImage ? (
-                                <img src={logoImage} alt="Logo" className="h-12 mb-2" />
-                            ) : (
-                                <div className="mb-2">
-                                    <h1 className="text-xl font-bold leading-tight">
-                                        <span className="text-black">possible</span>
-                                        <br />
-                                        <span className="text-gray-500 font-light">studio</span>
-                                    </h1>
-                                </div>
-                            )}
+                            <img src="PS_logo_black.png" alt="Logo" className="h-12 mb-2" onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.style.display = 'none';
+                                e.target.parentElement.innerHTML = '<div class="mb-2"><h1 class="text-xl font-bold leading-tight"><span class="text-black">possible</span><br/><span class="text-gray-500 font-light">studio</span></h1></div>';
+                            }} />
                             <div className="text-xs text-gray-600 space-y-0.5">
                                 <p className="font-semibold">{invoiceData.sender.name}</p>
                                 <p>{invoiceData.sender.addressLine1}</p>
@@ -603,13 +399,11 @@
                                     </div>
                                 </div>
                                 <div className="text-right">
-                                    {signatureImage ? (
-                                        <img src={signatureImage} alt="Signature" className="signature-preview inline-block" />
-                                    ) : (
-                                        <p className="font-script text-lg text-blue-900" style={{fontFamily: 'cursive'}}>
-                                            {invoiceData.signatory}
-                                        </p>
-                                    )}
+                                    <img src="prem_sign.png" alt="Signature" className="signature-preview inline-block" onError={(e) => {
+                                        e.target.onerror = null;
+                                        e.target.style.display = 'none';
+                                        e.target.parentElement.innerHTML = '<p class="font-script text-lg text-blue-900" style="font-family: cursive">'+ invoiceData.signatory + '</p>';
+                                    }} />
                                     <p className="text-xs text-gray-500 mt-1 border-t border-gray-300 pt-1">Authorized Signature</p>
                                 </div>
                             </div>
@@ -638,9 +432,6 @@
             const [savedBanks, setSavedBanks] = useState([]); 
             const [dbStatus, setDbStatus] = useState('connecting');
             const [user, setUser] = useState(null);
-            const [logoImage, setLogoImage] = useState('');
-            const [signatureImage, setSignatureImage] = useState('');
-            const [uploadError, setUploadError] = useState('');
             const autoSaveTimerRef = useRef(null);
 
             // --- Default Data ---
@@ -694,56 +485,6 @@
             }), [getDates]);
 
             const [invoiceData, setInvoiceData] = useState(defaultData);
-
-            // Load images from localStorage on component mount
-            useEffect(() => {
-                try {
-                    const savedLogo = localStorage.getItem('possibleStudio_logo');
-                    const savedSignature = localStorage.getItem('possibleStudio_signature');
-                    
-                    if (savedLogo && savedLogo.startsWith('data:image')) {
-                        setLogoImage(savedLogo);
-                    }
-                    
-                    if (savedSignature && savedSignature.startsWith('data:image')) {
-                        setSignatureImage(savedSignature);
-                    }
-                } catch (error) {
-                    console.error('Error loading images from localStorage:', error);
-                }
-            }, []);
-
-            // Save logo image to localStorage
-            useEffect(() => {
-                if (logoImage) {
-                    try {
-                        localStorage.setItem('possibleStudio_logo', logoImage);
-                    } catch (error) {
-                        console.error('Error saving logo to localStorage:', error);
-                        setUploadError('Error saving logo. Local storage may be full.');
-                    }
-                }
-            }, [logoImage]);
-
-            // Save signature image to localStorage
-            useEffect(() => {
-                if (signatureImage) {
-                    try {
-                        localStorage.setItem('possibleStudio_signature', signatureImage);
-                    } catch (error) {
-                        console.error('Error saving signature to localStorage:', error);
-                        setUploadError('Error saving signature. Local storage may be full.');
-                    }
-                }
-            }, [signatureImage]);
-
-            // Clear upload error after 5 seconds
-            useEffect(() => {
-                if (uploadError) {
-                    const timer = setTimeout(() => setUploadError(''), 5000);
-                    return () => clearTimeout(timer);
-                }
-            }, [uploadError]);
 
             // --- AUTH ---
             useEffect(() => {
@@ -1068,9 +809,7 @@
                     await push(ref(db, 'invoices'), { 
                         ...invoiceData, 
                         savedAt: serverTimestamp(), 
-                        totalAmount: total,
-                        logoImage: logoImage || null,
-                        signatureImage: signatureImage || null
+                        totalAmount: total
                     });
                     
                     const saveBtn = document.querySelector('[data-save-btn]');
@@ -1089,14 +828,12 @@
                 } finally {
                     setIsSaving(false);
                 }
-            }, [invoiceData, total, isSaving, logoImage, signatureImage]);
+            }, [invoiceData, total, isSaving]);
 
             const loadInvoice = useCallback((saved) => {
                 const { dbId, savedAt, totalAmount, ...clean } = saved;
                 if (!clean.client.customFields) clean.client.customFields = [];
                 setInvoiceData(clean);
-                if (clean.logoImage) setLogoImage(clean.logoImage);
-                if (clean.signatureImage) setSignatureImage(clean.signatureImage);
                 setShowHistory(false);
             }, []);
 
@@ -1201,10 +938,6 @@
             const resetToDefault = useCallback(() => {
                 if (window.confirm("Reset all fields to default? This will clear all current data.")) {
                     setInvoiceData(defaultData);
-                    setLogoImage('');
-                    setSignatureImage('');
-                    localStorage.removeItem('possibleStudio_logo');
-                    localStorage.removeItem('possibleStudio_signature');
                 }
             }, [defaultData]);
 
@@ -1214,17 +947,11 @@
                     {/* Header with logo */}
                     <div className="flex justify-between items-start mb-6 pb-4 border-b border-gray-300">
                         <div className="w-2/5">
-                            {logoImage ? (
-                                <img src={logoImage} alt="Logo" className="h-16 mb-3" />
-                            ) : (
-                                <div className="mb-3">
-                                    <h1 className="text-3xl font-bold leading-tight">
-                                        <span className="text-black">possible</span>
-                                        <br />
-                                        <span className="text-gray-500 font-light">studio</span>
-                                    </h1>
-                                </div>
-                            )}
+                            <img src="PS_logo_black.png" alt="Logo" className="h-16 mb-3" onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.style.display = 'none';
+                                e.target.parentElement.innerHTML = '<div class="mb-3"><h1 class="text-3xl font-bold leading-tight"><span class="text-black">possible</span><br/><span class="text-gray-500 font-light">studio</span></h1></div>';
+                            }} />
                             <div className="text-sm text-gray-700 space-y-1">
                                 <p className="font-semibold">{invoiceData.sender.name}</p>
                                 <p>{invoiceData.sender.addressLine1}</p>
@@ -1361,13 +1088,11 @@
                                 </div>
                             </div>
                             <div className="text-right mt-8">
-                                {signatureImage ? (
-                                    <img src={signatureImage} alt="Signature" className="h-20 mx-auto mb-2" />
-                                ) : (
-                                    <p className="font-script text-2xl mb-2 text-blue-900" style={{fontFamily: 'cursive'}}>
-                                        {invoiceData.signatory}
-                                    </p>
-                                )}
+                                <img src="prem_sign.png" alt="Signature" className="h-20 mx-auto mb-2" onError={(e) => {
+                                    e.target.onerror = null;
+                                    e.target.style.display = 'none';
+                                    e.target.parentElement.innerHTML = '<p class="font-script text-2xl mb-2 text-blue-900" style="font-family: cursive">'+ invoiceData.signatory + '</p>';
+                                }} />
                                 <p className="border-t border-gray-300 pt-2 text-sm uppercase tracking-wider font-semibold text-gray-600">
                                     Authorized Signature
                                 </p>
@@ -1399,8 +1124,6 @@
                                     subTotal={subTotal}
                                     total={total}
                                     amountInWords={amountInWords}
-                                    logoImage={logoImage}
-                                    signatureImage={signatureImage}
                                 />
                             </div>
                         </div>
@@ -1552,38 +1275,42 @@
                             
                             {/* Editor */}
                             <div className={`space-y-6 ${mode === 'preview' ? 'hidden lg:block' : ''} print:hidden`}>
-                                {/* Branding Images */}
+                                {/* Branding Images Section */}
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                                    <h2 className="text-lg font-semibold mb-4 flex items-center text-gray-700">
-                                        <Image className="w-5 h-5 mr-2" /> Branding Images
-                                    </h2>
-                                    
-                                    {uploadError && (
-                                        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm">
-                                            {uploadError}
-                                        </div>
-                                    )}
-                                    
+                                    <h2 className="text-lg font-semibold mb-4 text-gray-700">Branding Images</h2>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <ImageUpload 
-                                            label="Company Logo"
-                                            currentImage={logoImage}
-                                            onImageChange={setLogoImage}
-                                            maxSizeMB={2}
-                                        />
-                                        <ImageUpload 
-                                            label="Signature Image"
-                                            currentImage={signatureImage}
-                                            onImageChange={setSignatureImage}
-                                            aspectRatio="wide"
-                                            maxSizeMB={2}
-                                        />
+                                        <div className="space-y-3">
+                                            <label className="block text-sm font-medium text-gray-700">Company Logo</label>
+                                            <div className="border border-gray-300 rounded-lg p-4 bg-gray-50 flex flex-col items-center justify-center h-40">
+                                                <img src="PS_logo_black.png" alt="Logo" className="h-24 mb-2" onError={(e) => {
+                                                    e.target.onerror = null;
+                                                    e.target.style.display = 'none';
+                                                    e.target.parentElement.innerHTML = '<div class="text-gray-400 text-center"><div class="text-2xl font-bold mb-1">PS Logo</div><div class="text-xs">Place PS_logo_black.png in same directory</div></div>';
+                                                }} />
+                                                <div className="text-xs text-gray-500 text-center">
+                                                    <p>File: <code>PS_logo_black.png</code></p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-3">
+                                            <label className="block text-sm font-medium text-gray-700">Signature</label>
+                                            <div className="border border-gray-300 rounded-lg p-4 bg-gray-50 flex flex-col items-center justify-center h-40">
+                                                <img src="prem_sign.png" alt="Signature" className="h-20 mb-2" onError={(e) => {
+                                                    e.target.onerror = null;
+                                                    e.target.style.display = 'none';
+                                                    e.target.parentElement.innerHTML = '<div class="text-gray-400 text-center"><div class="text-2xl font-bold mb-1">Signature</div><div class="text-xs">Place prem_sign.png in same directory</div></div>';
+                                                }} />
+                                                <div className="text-xs text-gray-500 text-center">
+                                                    <p>File: <code>prem_sign.png</code></p>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div className="mt-4 text-xs text-gray-500 space-y-1">
-                                        <p>• Logo appears at top-left (recommended: 300×100px)</p>
-                                        <p>• Signature appears at bottom-right (recommended: 300×80px)</p>
-                                        <p>• Images save automatically to your browser</p>
-                                        <p>• Supported formats: PNG, JPG, GIF, WebP</p>
+                                        <p>• Place both image files in the same directory as this HTML file</p>
+                                        <p>• Logo: <code>PS_logo_black.png</code> (recommended: 300×100px)</p>
+                                        <p>• Signature: <code>prem_sign.png</code> (recommended: 300×80px)</p>
+                                        <p>• If images are missing, text will be displayed as fallback</p>
                                     </div>
                                 </div>
 
